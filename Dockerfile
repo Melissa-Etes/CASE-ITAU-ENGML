@@ -3,7 +3,7 @@
 # base hoje e daqui a 6 meses. Atualizar o digest e uma decisao explicita
 # (bump manual ou automatizado via Dependabot), nao um efeito colateral de
 # alguem rebuildar.
-ARG PYTHON_IMAGE=python:3.12-slim@sha256:646fb0bca3dd3ea1bcc6feb72c17ed16eed6e10cffc732fcc1478bd3e7f02d7b
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
 
 # ---- stage 1: builder -------------------------------------------------
 # So essa stage instala dependencias (e o cache de pip que isso gera). Nada
