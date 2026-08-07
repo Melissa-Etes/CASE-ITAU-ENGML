@@ -36,6 +36,22 @@ curl http://localhost:8000/recommendations/u_0231
 O job de ingestão (`ingestion/build_features.py`) roda **dentro do build da imagem** — o container
 já sobe com o parquet de features pronto, sem depender de nada externo no startup.
 
+### Stack completa via docker-compose (API + Prometheus + Grafana)
+
+`docker-compose.yml` orquestra os três serviços como **containers separados** (não junta tudo numa
+imagem só — cada um mantém seu ciclo de vida, escalabilidade e imagem oficial independentes; ver
+decisão nº 9 abaixo para o porquê).
+
+| Ação | Comando |
+|---|---|
+| Subir tudo (build da API + Prometheus + Grafana) | `docker compose up -d --build` |
+| Ver status dos containers | `docker compose ps` |
+| Ver logs de todos os serviços | `docker compose logs -f` |
+| Desligar tudo | `docker compose down` |
+
+Dashboard em `http://localhost:3000/d/personalization-service` (autenticação anônima habilitada
+só para essa demo local, ver seção de observabilidade abaixo).
+
 ### Endpoints
 
 | Rota | Descrição |
@@ -150,6 +166,22 @@ container — o container sobe já com o parquet pronto, startup rápido e sem d
 **Trade-off aceito:** atualizar os dados exige rebuild + redeploy da imagem, não só reiniciar o
 container. Documentado como decisão consciente de simplicidade em troca de atualização em tempo
 real (ver item 1).
+
+### 9. Containers separados para API, Prometheus e Grafana (não uma imagem única)
+
+`docker-compose.yml` define três serviços, cada um com sua própria imagem e ciclo de vida — não
+embuti Prometheus/Grafana dentro da imagem da API.
+
+**Por quê:** segue o princípio de um processo principal por container. Cada serviço pode ser
+atualizado, escalado e substituído de forma independente (ex: trocar a versão do Grafana sem
+rebuildar a API); as imagens oficiais `prom/prometheus` e `grafana/grafana` já são mantidas e
+atualizadas pelos próprios projetos, evitando reinventar isso dentro do meu próprio build; e uma
+falha num serviço (ex: Grafana trava) não arrasta os outros junto, diferente de um único processo
+supervisionando tudo dentro do mesmo container.
+
+`docker compose up -d --build` sobe os três de uma vez sem juntar nada; `docker compose down`
+desliga todos juntos. Em produção, o equivalente seria um Pod por serviço no Kubernetes, ou
+serviços gerenciados separados (ver seção de observabilidade abaixo).
 
 ---
 

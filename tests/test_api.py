@@ -18,7 +18,10 @@ def test_health():
     with TestClient(app) as client:
         resp = client.get("/health")
         assert resp.status_code == 200
-        assert resp.json() == {"status": "ok"}
+        body = resp.json()
+        assert body["status"] == "ok"
+        assert body["model_version"] == "1.0.0"
+        assert body["known_users"] == 500
 
 
 def test_recommendations_for_known_user_are_ranked_by_score():

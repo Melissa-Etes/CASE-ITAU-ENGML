@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Query
 from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
+from pydantic import BaseModel
 
 from app.logging_config import configure_logging, get_logger
 from app.model_service import RecommendationService
@@ -21,7 +22,11 @@ service: RecommendationService | None = None
 async def lifespan(app: FastAPI):
     global service
     service = RecommendationService()
-    logger.info("service_ready", known_users=len(service.known_users))
+    logger.info(
+        "service_ready",
+        known_users=len(service.known_users),
+        model_version=service.model_version,
+    )
     yield
 
 
@@ -42,12 +47,38 @@ RECOMMENDATION_REQUESTS = Counter(
 )
 
 
-@app.get("/health")
+class HealthResponse(BaseModel):
+    status: str
+    model_version: str
+    known_users: int
+
+
+class RecommendationItem(BaseModel):
+    product_id: str
+    score: float
+    category: str
+    price: float
+
+
+class RecommendationsResponse(BaseModel):
+    user_id: str
+    cold_start: bool
+    model_version: str
+    recommendations: list[RecommendationItem]
+
+
+@app.get("/health", response_model=HealthResponse)
 def health():
-    return {"status": "ok"}
+    if service is None:
+        raise HTTPException(status_code=503, detail="service not ready")
+    return HealthResponse(
+        status="ok",
+        model_version=service.model_version,
+        known_users=len(service.known_users),
+    )
 
 
-@app.get("/recommendations/{user_id}")
+@app.get("/recommendations/{user_id}", response_model=RecommendationsResponse)
 def get_recommendations(user_id: str, top_n: int = Query(default=10, ge=1, le=60)):
     if service is None:
         raise HTTPException(status_code=503, detail="service not ready")
@@ -73,16 +104,17 @@ def get_recommendations(user_id: str, top_n: int = Query(default=10, ge=1, le=60
         latency_ms=round(latency_ms, 2),
     )
 
-    return {
-        "user_id": user_id,
-        "cold_start": cold_start,
-        "recommendations": [
-            {
-                "product_id": r.product_id,
-                "score": r.score,
-                "category": r.category,
-                "price": r.price,
-            }
+    return RecommendationsResponse(
+        user_id=user_id,
+        cold_start=cold_start,
+        model_version=service.model_version,
+        recommendations=[
+            RecommendationItem(
+                product_id=r.product_id,
+                score=r.score,
+                category=r.category,
+                price=r.price,
+            )
             for r in recs
         ],
-    }
+    )
