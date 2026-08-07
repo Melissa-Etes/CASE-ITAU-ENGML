@@ -67,6 +67,55 @@
         }
       ],
       "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "type": "heatmap",
+      "title": "Distribuicao dos scores de recomendacao",
+      "description": "Um desvio brusco na distribuicao (ex: tudo concentrado perto de 0) e sinal de alerta de qualidade do modelo antes mesmo de alguem reclamar.",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(increase(recommendation_score_bucket[1m])) by (le)",
+          "format": "heatmap",
+          "legendFormat": "{{le}}"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Idade dos dados de features",
+      "description": "Ha quanto tempo o snapshot de features em uso foi gerado. A ingestao roda em batch (nao em tempo real) -- um valor crescendo sem limite sinaliza que o job de reingestao/redeploy nao esta rodando.",
+      "gridPos": { "h": 8, "w": 6, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "features_data_age_seconds"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 86400 },
+              { "color": "red", "value": 604800 }
+            ]
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "stat",
+      "title": "Score medio (ultimos 5m)",
+      "gridPos": { "h": 8, "w": 6, "x": 18, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate(recommendation_score_sum[5m])) / sum(rate(recommendation_score_count[5m]))"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "none", "decimals": 3 }, "overrides": [] }
     }
   ]
 }

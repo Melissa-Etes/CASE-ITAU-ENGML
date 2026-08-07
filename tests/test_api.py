@@ -22,6 +22,7 @@ def test_health():
         assert body["status"] == "ok"
         assert body["model_version"] == "1.0.0"
         assert body["known_users"] == 500
+        assert body["features_age_seconds"] >= 0
 
 
 def test_recommendations_for_known_user_are_ranked_by_score():
@@ -92,3 +93,13 @@ def test_absurdly_long_user_id_is_rejected_with_400():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/u_0231{'a' * 100}?top_n=3")
         assert resp.status_code == 400
+
+
+def test_score_histogram_and_data_age_are_exposed_in_metrics():
+    with TestClient(app) as client:
+        client.get(f"/recommendations/{KNOWN_USER}?top_n=3")
+        metrics_body = client.get("/metrics").text
+
+    assert "recommendation_score_bucket" in metrics_body
+    assert "recommendation_score_count" in metrics_body
+    assert "features_data_age_seconds" in metrics_body

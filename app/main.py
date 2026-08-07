@@ -8,12 +8,14 @@ negocio nem formato de resposta -- so a montagem da app e o startup).
 
 from __future__ import annotations
 
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.logging_config import configure_logging, get_logger
+from app.metrics import FEATURES_DATA_AGE_SECONDS
 from app.model_service import RecommendationService
 from app.routers.recommendations import router as recommendations_router
 
@@ -23,11 +25,17 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    app.state.service = RecommendationService()
+    service = RecommendationService()
+    app.state.service = service
+
+    # set_function: o Gauge recalcula "agora - geracao do snapshot" a cada
+    # scrape do Prometheus, sem precisar de thread/job de atualizacao.
+    FEATURES_DATA_AGE_SECONDS.set_function(lambda: time.time() - service.features_generated_at)
+
     logger.info(
         "service_ready",
-        known_users=len(app.state.service.known_users),
-        model_version=app.state.service.model_version,
+        known_users=len(service.known_users),
+        model_version=service.model_version,
     )
     yield
 

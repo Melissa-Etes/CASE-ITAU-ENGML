@@ -14,6 +14,7 @@ class HealthResponse(BaseModel):
     status: str
     model_version: str
     known_users: int
+    features_age_seconds: float
 
 
 class RecommendationItem(BaseModel):

@@ -66,6 +66,11 @@ class RecommendationService:
         self.products = pd.read_csv(products_path).set_index("product_id")
         self.known_users = set(self.features.index.unique())
 
+        # mtime do parquet = quando o job de ingestao gerou esse snapshot.
+        # Usado para expor "ha quanto tempo o dado nao e atualizado" -- relevante
+        # porque a ingestao roda em batch (ver SOLUTION.md), nao em tempo real.
+        self.features_generated_at: float = features_path.stat().st_mtime
+
     def _check_artifact_integrity(self) -> None:
         """Sanity check de startup: o scaler foi ajustado (fit) para o mesmo
         numero de colunas que feature_cols declara. Se alguem trocar o

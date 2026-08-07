@@ -13,7 +13,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.dependencies import get_service
 from app.logging_config import get_logger
-from app.metrics import RECOMMENDATION_REQUESTS
+from app.metrics import RECOMMENDATION_REQUESTS, RECOMMENDATION_SCORE
 from app.model_service import RecommendationService
 from app.schemas import HealthResponse, RecommendationItem, RecommendationsResponse
 from app.validation import InvalidUserIdError, normalize_user_id
@@ -29,6 +29,7 @@ def health(service: RecommendationService = Depends(get_service)):
         status="ok",
         model_version=service.model_version,
         known_users=len(service.known_users),
+        features_age_seconds=round(time.time() - service.features_generated_at, 1),
     )
 
 
@@ -49,6 +50,8 @@ def get_recommendations(
     latency_ms = (time.perf_counter() - start) * 1000
 
     RECOMMENDATION_REQUESTS.labels(cold_start=str(cold_start).lower()).inc()
+    for r in recs:
+        RECOMMENDATION_SCORE.observe(r.score)
 
     logger.info(
         "recommendations_served",

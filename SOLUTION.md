@@ -223,14 +223,23 @@ chega a `main` sem passar por teste e build.
 - Métrica de negócio dedicada `recommendation_requests_total{cold_start=...}` (via
   `prometheus_client.Counter`), permitindo calcular a taxa de cold start como sinal de produto
   (quantos usuários novos recebem recomendação não-personalizada), não só sinal técnico.
+- **Distribuição dos scores retornados** (`recommendation_score`, `Histogram`): não só a contagem de
+  requests, mas os valores de score efetivamente servidos. Um desvio brusco na distribuição (ex: tudo
+  concentrado perto de 0) é sinal de alerta de qualidade do modelo antes mesmo de alguém reclamar —
+  recomendação de monitoramento de ML além das métricas técnicas genéricas de request/latência/erro.
+- **Idade do snapshot de features** (`features_data_age_seconds`, `Gauge` com `set_function`,
+  recalculado a cada scrape a partir do `mtime` do parquet): expõe há quanto tempo os dados não são
+  atualizados, relevante porque a ingestão roda em batch, não em tempo real (ver decisão nº 1). Também
+  exposto em `/health` como `features_age_seconds`.
 - `HEALTHCHECK` no Dockerfile batendo em `/health`, usado por Docker/ECS para saber quando reiniciar
   um container travado.
 - **Stack de observabilidade real, conectada, via `docker-compose.yml`**: Prometheus faz scrape do
   `/metrics` da API a cada 5s; Grafana sobe com datasource e um dashboard já provisionados
   (`observability/`), sem configuração manual — requests/s por status, latência p50/p95, taxa de
-  erro 5xx e taxa de cold start, todos atualizando ao vivo. `docker compose up -d` sobe os três
-  serviços; dashboard em `http://localhost:3000/d/personalization-service` (auth anônima habilitada
-  só para essa demo local, não usar esse modo em produção).
+  erro 5xx, taxa de cold start, distribuição de score (heatmap), score médio e idade dos dados, todos
+  atualizando ao vivo. `docker compose up -d` sobe os três serviços; dashboard em
+  `http://localhost:3000/d/personalization-service` (auth anônima habilitada só para essa demo local,
+  não usar esse modo em produção).
 
 **Adicionaria com mais tempo:**
 - Alertas configurados sobre thresholds de latência (p95) e taxa de erro (ex: via Alertmanager).
@@ -239,3 +248,7 @@ chega a `main` sem passar por teste e build.
 - Em produção real, trocar a autenticação anônima do Grafana por login/SSO, e mover
   Prometheus/Grafana para um serviço gerenciado (Amazon Managed Prometheus/Grafana) em vez de
   containers próprios sem persistência.
+- **Detecção de data drift**: comparar a distribuição de features de entrada (e de scores) em
+  produção contra a distribuição vista no treino (ex: KL divergence, Evidently AI). Não implementado
+  porque exigiria guardar uma distribuição de referência do treino, que não faz parte do artefato
+  recebido no case.
