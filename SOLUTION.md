@@ -183,6 +183,19 @@ supervisionando tudo dentro do mesmo container.
 desliga todos juntos. Em produção, o equivalente seria um Pod por serviço no Kubernetes, ou
 serviços gerenciados separados (ver seção de observabilidade abaixo).
 
+### 10. CI, sem CD
+
+`.github/workflows/ci.yml` roda automaticamente a cada `push`/`pull request` para `main`: instala
+dependências, roda o job de ingestão, roda os 28 testes (`pytest`), e builda + sobe a imagem Docker
+validando o `/health` — o gate mínimo antes de qualquer merge.
+
+**Por que só CI, sem CD (deploy automático):** CD exige um alvo real para publicar (registry de
+imagens, cluster/serviço de nuvem, credenciais) — nada disso existe neste projeto, que não tem
+infraestrutura provisionada. Implementar CD sem alvo real seria simular um passo que não faz
+sentido sem a AWS por trás (ver discussão de arquitetura AWS/Terraform, que ficou como conceito,
+não implementação). CI sozinho já entrega o valor real disponível agora: nenhum código quebrado
+chega a `main` sem passar por teste e build.
+
 ---
 
 ## O que eu faria diferente com mais tempo

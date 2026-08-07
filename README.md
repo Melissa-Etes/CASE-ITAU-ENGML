@@ -1,5 +1,7 @@
 # Personalization Service
 
+[![CI](https://github.com/Melissa-Etes/CASE-ITAU-ENGML/actions/workflows/ci.yml/badge.svg)](https://github.com/Melissa-Etes/CASE-ITAU-ENGML/actions/workflows/ci.yml)
+
 Microsserviço HTTP que serve recomendações personalizadas de produtos a partir de um modelo de
 propensão de compra **já treinado** (sklearn `LogisticRegression`). O foco do case é 100%
 engenharia: ingestão de dados, API, tratamento de edge cases, testes e observabilidade — não

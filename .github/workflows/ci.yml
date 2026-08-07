@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  test:
+    name: Testes automatizados
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instala dependencias
+        run: pip install -r requirements.txt
+
+      - name: Roda o job de ingestao (gera as features para os testes)
+        run: python -m ingestion.build_features
+
+      - name: Roda os testes (unitarios + integracao)
+        run: pytest -v
+
+  docker-build:
+    name: Build da imagem Docker
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Builda a imagem (sem publicar)
+        run: docker build -t personalization-service .
+
+      - name: Sobe o container e valida o health check
+        run: |
+          docker run -d --name pers -p 8000:8000 personalization-service
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8000/health; then exit 0; fi
+            sleep 2
+          done
+          echo "container nao ficou saudavel a tempo"
+          docker logs pers
+          exit 1
