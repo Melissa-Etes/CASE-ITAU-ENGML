@@ -1,0 +1,72 @@
+{
+  "title": "Personalization Service",
+  "uid": "personalization-service",
+  "timezone": "browser",
+  "refresh": "5s",
+  "time": { "from": "now-15m", "to": "now" },
+  "schemaVersion": 39,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Requests por segundo (por status)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_requests_total{handler=\"/recommendations/{user_id}\"}[1m])) by (status)",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia p50 / p95 (segundos)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_request_duration_seconds_bucket{handler=\"/recommendations/{user_id}\"}[5m])) by (le))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{handler=\"/recommendations/{user_id}\"}[5m])) by (le))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Taxa de erro (5xx, ultimos 5m)",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(http_requests_total{handler=\"/recommendations/{user_id}\", status=~\"5..\"}[5m])) / sum(rate(http_requests_total{handler=\"/recommendations/{user_id}\"}[5m]))"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "type": "stat",
+      "title": "Taxa de cold start (ultimos 5m)",
+      "gridPos": { "h": 8, "w": 6, "x": 6, "y": 8 },
+      "targets": [
+        {
+          "expr": "100 * sum(rate(recommendation_requests_total{cold_start=\"true\"}[5m])) / sum(rate(recommendation_requests_total[5m]))"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1 }, "overrides": [] }
+    },
+    {
+      "type": "timeseries",
+      "title": "Recomendacoes servidas: cold start vs. usuario conhecido",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(rate(recommendation_requests_total[1m])) by (cold_start)",
+          "legendFormat": "cold_start={{cold_start}}"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "reqps" }, "overrides": [] }
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import time
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Query
+from prometheus_client import Counter
 from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.logging_config import configure_logging, get_logger
@@ -29,6 +30,17 @@ app = FastAPI(title="Personalization Service", lifespan=lifespan)
 # Metricas Prometheus (request count, latencia p50/p95 via histogram, taxa de erro por status code).
 Instrumentator().instrument(app).expose(app, endpoint="/metrics")
 
+# Metrica de negocio, alem das metricas tecnicas genericas acima: quantas
+# recomendacoes sao servidas em fallback de cold start, por rotulo. Permite
+# montar "% de requests em cold start" como sinal de produto (quantos
+# usuarios novos estao recebendo recomendacao nao-personalizada), nao so
+# sinal tecnico.
+RECOMMENDATION_REQUESTS = Counter(
+    "recommendation_requests_total",
+    "Total de recomendacoes servidas, particionado por fallback de cold start",
+    ["cold_start"],
+)
+
 
 @app.get("/health")
 def health():
@@ -49,6 +61,8 @@ def get_recommendations(user_id: str, top_n: int = Query(default=10, ge=1, le=60
     start = time.perf_counter()
     recs, cold_start = service.recommend(user_id, top_n=top_n)
     latency_ms = (time.perf_counter() - start) * 1000
+
+    RECOMMENDATION_REQUESTS.labels(cold_start=str(cold_start).lower()).inc()
 
     logger.info(
         "recommendations_served",

@@ -34,6 +34,20 @@ curl http://localhost:8000/health
 O job de ingestão roda **dentro do build da imagem** — o container já sobe com as features
 pré-computadas, sem depender de nada externo no startup.
 
+### Stack de observabilidade (Prometheus + Grafana)
+
+```bash
+docker compose up -d --build
+```
+
+Sobe a API + Prometheus (faz scrape de `/metrics` a cada 5s) + Grafana, com datasource e dashboard
+já provisionados automaticamente. Dashboard em `http://localhost:3000/d/personalization-service`
+(sem necessidade de login — autenticação anônima habilitada só para essa demo local).
+
+```bash
+docker compose down
+```
+
 ### Testes
 
 ```bash

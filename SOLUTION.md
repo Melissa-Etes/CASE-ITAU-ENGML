@@ -175,15 +175,22 @@ real (ver item 1).
 - Log de aviso (`invalid_user_id`) para toda tentativa de request com `user_id` malformado.
 - `/metrics` em formato Prometheus (via `prometheus-fastapi-instrumentator`): contagem de requests
   por rota/status code, e um histograma de latência do qual dá para derivar p50/p95.
+- Métrica de negócio dedicada `recommendation_requests_total{cold_start=...}` (via
+  `prometheus_client.Counter`), permitindo calcular a taxa de cold start como sinal de produto
+  (quantos usuários novos recebem recomendação não-personalizada), não só sinal técnico.
 - `HEALTHCHECK` no Dockerfile batendo em `/health`, usado por Docker/ECS para saber quando reiniciar
   um container travado.
+- **Stack de observabilidade real, conectada, via `docker-compose.yml`**: Prometheus faz scrape do
+  `/metrics` da API a cada 5s; Grafana sobe com datasource e um dashboard já provisionados
+  (`observability/`), sem configuração manual — requests/s por status, latência p50/p95, taxa de
+  erro 5xx e taxa de cold start, todos atualizando ao vivo. `docker compose up -d` sobe os três
+  serviços; dashboard em `http://localhost:3000/d/personalization-service` (auth anônima habilitada
+  só para essa demo local, não usar esse modo em produção).
 
 **Adicionaria com mais tempo:**
-- Integração real com uma stack de observabilidade (CloudWatch, Datadog ou Grafana) — hoje a
-  informação está pronta para consumo, mas não conectada a nada.
-- Alertas configurados sobre thresholds de latência (p95) e taxa de erro.
+- Alertas configurados sobre thresholds de latência (p95) e taxa de erro (ex: via Alertmanager).
 - Tracing distribuído com um trace ID amarrando todos os logs de uma mesma requisição — relevante
   caso este serviço passe a chamar outros serviços no futuro.
-- Métrica dedicada à taxa de cold start (`% de requests com cold_start=true`), útil como sinal de
-  produto (quantos usuários novos estão recebendo recomendação não-personalizada) além de sinal
-  técnico.
+- Em produção real, trocar a autenticação anônima do Grafana por login/SSO, e mover
+  Prometheus/Grafana para um serviço gerenciado (Amazon Managed Prometheus/Grafana) em vez de
+  containers próprios sem persistência.
