@@ -89,6 +89,15 @@ def test_user_id_with_injection_like_chars_is_rejected_with_400():
         assert "user_id" in resp.json()["detail"]
 
 
+def test_error_response_body_includes_status_code_alongside_message():
+    with TestClient(app) as client:
+        resp = client.get("/recommendations/xyz123")
+        assert resp.status_code == 400
+        body = resp.json()
+        assert body["status_code"] == 400
+        assert body["detail"] == "user_id deve seguir o formato 'u_' + 4 digitos (ex: u_0231)"
+
+
 def test_absurdly_long_user_id_is_rejected_with_400():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/u_0231{'a' * 100}?top_n=3")

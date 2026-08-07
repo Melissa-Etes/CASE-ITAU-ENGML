@@ -29,3 +29,15 @@ class RecommendationsResponse(BaseModel):
     cold_start: bool
     model_version: str
     recommendations: list[RecommendationItem]
+
+
+class ErrorResponse(BaseModel):
+    """Formato padrao de erro: o codigo HTTP tambem vai dentro do corpo da
+    resposta (status_code), nao so no header HTTP -- facilita quem consome
+    a API logar/tratar o erro sem precisar inspecionar o status separado do
+    corpo, e mantem a mensagem que cada camada (validation.py, etc) já
+    configurou.
+    """
+
+    status_code: int
+    detail: str
