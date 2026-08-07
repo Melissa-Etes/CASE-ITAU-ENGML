@@ -1,10 +1,30 @@
-FROM python:3.12-slim
+# Digest fixado (nao so a tag "3.12-slim", que e movel e muda de conteudo com
+# o tempo) -- builds reproduziveis: o mesmo Dockerfile gera a mesma imagem
+# base hoje e daqui a 6 meses. Atualizar o digest e uma decisao explicita
+# (bump manual ou automatizado via Dependabot), nao um efeito colateral de
+# alguem rebuildar.
+ARG PYTHON_IMAGE=python:3.12-slim@sha256:646fb0bca3dd3ea1bcc6feb72c17ed16eed6e10cffc732fcc1478bd3e7f02d7b
+
+# ---- stage 1: builder -------------------------------------------------
+# So essa stage instala dependencias (e o cache de pip que isso gera). Nada
+# daqui sobra na imagem final -- so o resultado (o venv) e copiado adiante.
+FROM ${PYTHON_IMAGE} AS builder
 
 WORKDIR /srv
 
-# Instala dependencias primeiro (camada cacheada -- so reinstala se requirements.txt mudar)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN python -m venv /venv \
+    && /venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# ---- stage 2: runtime ---------------------------------------------------
+# Imagem final: so o venv pronto (sem pytest/httpx -- ficam em
+# requirements-dev.txt, usados apenas no CI) + o codigo + os dados/modelo.
+FROM ${PYTHON_IMAGE}
+
+WORKDIR /srv
+
+COPY --from=builder /venv /venv
+ENV PATH="/venv/bin:$PATH"
 
 # Copia o codigo e os dados/modelo recebidos no case
 COPY app/ app/

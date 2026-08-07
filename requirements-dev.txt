@@ -1,0 +1,6 @@
+# Dependencias adicionais so para desenvolvimento/testes -- nao vao para a
+# imagem Docker de producao (ver Dockerfile: apenas requirements.txt e usado
+# no build final).
+-r requirements.txt
+pytest==8.3.4
+httpx==0.28.1
