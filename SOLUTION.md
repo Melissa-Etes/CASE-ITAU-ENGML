@@ -252,3 +252,44 @@ chega a `main` sem passar por teste e build.
   produção contra a distribuição vista no treino (ex: KL divergence, Evidently AI). Não implementado
   porque exigiria guardar uma distribuição de referência do treino, que não faz parte do artefato
   recebido no case.
+
+---
+
+## Teste de performance / carga
+
+Rodei um teste de carga real (`locustfile.py`, na raiz do repo) contra a API subida via
+`docker-compose`, simulando usuários simultâneos batendo em `/recommendations/{user_id}` (mix de
+usuários conhecidos e cold start) e `/health`.
+
+```bash
+pip install locust
+locust -f locustfile.py --host http://localhost:8000 --headless --users 150 --spawn-rate 50 --run-time 20s
+```
+
+### Resultados
+
+| Usuários simultâneos | Throughput | p95 | Taxa de erro |
+|---|---|---|---|
+| 10 | 49 req/s | 37 ms | 0% |
+| 50 | 186 req/s | 200 ms | 0% |
+| 150 | 184 req/s | 870 ms | 0% |
+| 300 | 164 req/s | 2.200 ms | 0% |
+
+**Achado:** o throughput satura em **~180-190 req/s** independente de quantos usuários simultâneos
+são jogados contra a API (o mesmo teto aparece em 50, 150 e 300 usuários) — sinal característico de
+saturação do **threadpool interno do FastAPI** (o endpoint é `def` síncrono, então cada request
+ocupa uma das ~40 threads padrão do pool enquanto processa; acima disso, requests só ficam na fila,
+não falham, mas a latência cresce quase linearmente). Não houve nenhum erro em nenhum nível testado
+— a degradação é só de latência, não de disponibilidade.
+
+**Causa raiz e correção conhecida:** um único processo Uvicorn usa efetivamente 1 núcleo de CPU para
+código Python (GIL). A correção padrão é rodar múltiplos **workers** do Uvicorn (`--workers N`, um
+processo por núcleo disponível) atrás de um load balancer, ou usar Gunicorn como process manager com
+workers Uvicorn. Não validei essa correção com um teste de carga comparativo: `uvicorn --workers`
+usa multiprocessing, que tem suporte instável no Windows nativo (ambiente onde rodei o teste) —
+funcionaria normalmente dentro do container Linux/Docker ou num ambiente de CI, mas não cheguei a
+rodar esse comparativo dentro do tempo do case.
+
+**O que eu faria com mais tempo:** repetir o teste de carga com `--workers 4` dentro do container
+Docker (Linux, sem a limitação do Windows), comparar o novo teto de throughput, e definir o número
+de workers/réplicas do ECS Fargate com base nesse número real, em vez de um chute.
