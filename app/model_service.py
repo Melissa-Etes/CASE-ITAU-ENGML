@@ -9,6 +9,8 @@ na pratica isso aproxima o ranking de uma ordenacao por popularidade/qualidade d
 produto, sem exigir um caminho de codigo separado do fluxo normal. Ver SOLUTION.md.
 """
 
+
+
 from __future__ import annotations
 
 import json
