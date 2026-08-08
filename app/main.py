@@ -1,7 +1,7 @@
 """Raiz de composicao da aplicacao (padrao MVC: aqui NAO fica logica de
 negocio nem formato de resposta -- so a montagem da app e o startup).
 
-- Model:      app/model_service.py (calculo da recomendacao) + app/validation.py
+- Model:      app/service_completo.py (calculo da recomendacao) + app/validation.py
 - View:       app/schemas.py (formato das respostas)
 - Controller: app/routers/recommendations.py (rotas HTTP)
 """
@@ -17,7 +17,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 
 from app.logging_config import configure_logging, get_logger
 from app.metrics import FEATURES_DATA_AGE_SECONDS
-from app.model_service import RecommendationService
+from app.service_completo import Recomendador
 from app.routers.recommendations import router as recommendations_router
 from app.schemas import ErrorResponse
 
@@ -27,7 +27,7 @@ logger = get_logger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    service = RecommendationService()
+    service = Recomendador()
     app.state.service = service
 
     # set_function: o Gauge recalcula "agora - geracao do snapshot" a cada

@@ -1,7 +1,7 @@
 """View: os formatos (contratos) de resposta da API.
 
 Camada MVC responsavel apenas por *como o dado sai* -- nao contem logica de
-negocio nem sabe como o dado foi calculado. So Model (app/model_service.py)
+negocio nem sabe como o dado foi calculado. So Model (app/service_completo.py)
 sabe calcular; so o Controller (app/routers/) decide quando usar cada schema.
 """
 

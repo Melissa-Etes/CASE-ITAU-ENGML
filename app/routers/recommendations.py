@@ -1,6 +1,6 @@
 """Controller: recebe a requisicao HTTP, chama o Model, formata na View.
 
-Nao calcula recomendacao (isso e trabalho do Model, em app/model_service.py)
+Nao calcula recomendacao (isso e trabalho do Model, em app/service_completo.py)
 e nao define o formato da resposta (isso e a View, em app/schemas.py) -- so
 orquestra: valida input, chama o service, loga, mede, devolve.
 """
@@ -14,7 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.dependencies import get_service
 from app.logging_config import get_logger
 from app.metrics import RECOMMENDATION_REQUESTS, RECOMMENDATION_SCORE
-from app.model_service import RecommendationService
+from app.service_completo import Recomendador
 from app.schemas import HealthResponse, RecommendationItem, RecommendationsResponse
 from app.validation import InvalidUserIdError, normalize_user_id
 
@@ -24,7 +24,7 @@ router = APIRouter()
 
 
 @router.get("/health", response_model=HealthResponse)
-def health(service: RecommendationService = Depends(get_service)):
+def health(service: Recomendador = Depends(get_service)):
     return HealthResponse(
         status="ok",
         model_version=service.model_version,
@@ -37,7 +37,7 @@ def health(service: RecommendationService = Depends(get_service)):
 def get_recommendations(
     user_id: str,
     top_n: int = Query(default=10, ge=1, le=60),
-    service: RecommendationService = Depends(get_service),
+    service: Recomendador = Depends(get_service),
 ):
     try:
         user_id = normalize_user_id(user_id)
