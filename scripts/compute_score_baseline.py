@@ -1,5 +1,5 @@
 """Calcula o baseline de distribuicao de score usado pelo gate de qualidade
-do modelo (tests_v2/test_model_quality_gate.py) e pelo dashboard do Grafana
+do modelo (tests/test_model_quality_gate.py) e pelo dashboard do Grafana
 (observability/grafana/provisioning/dashboards/personalization-service.json).
 
 Roda o modelo real (model/model.pkl) sobre o snapshot de features real

@@ -150,28 +150,26 @@ testes correspondentes foram removidos do projeto por ficarem fora do caminho de
 
 ## Testes
 
-Duas suítes, cobrindo camadas diferentes:
+Uma suíte só, em `tests/` (a antiga separação em `tests/` + `tests_v2/`, usada
+enquanto `model_service.py` e `service_completo.py` coexistiam, foi fundida depois
+que `model_service.py` foi removido — não há mais dois "Models" concorrentes para
+justificar duas pastas):
 
 ```bash
-python -m pytest tests/ tests_v2/ -v      # roda as duas juntas
+python -m pytest -v
 ```
-
-### `tests/` — comportamento da API e das peças de produção que não mudaram
 
 | Arquivo | O que testa |
 |---|---|
 | `test_api.py` (11 testes) | Integração real via `TestClient` do FastAPI: sobe a aplicação inteira (modelo, scaler, dados reais, sem mock) e bate nos endpoints — usuário conhecido ranqueado por score, cold start, `top_n` respeitado e validado (rejeita fora de 1–60), normalização de maiúscula, rejeição de `user_id` malformado com 400 (incluindo tentativas de SQL injection e XSS), corpo de erro padronizado, e métricas (`recommendation_score`, `features_data_age_seconds`) expostas em `/metrics`. |
-| `test_features.py` (5 testes) | Unitário, sobre `ingestion/features.py`, com dado sintético em memória (sem I/O): contagem de interações por qualquer tipo de evento, escolha da categoria de maior afinidade do usuário, critério de desempate por popularidade, formato/colunas da matriz de features gerada, e que `user_affinity_match=1` funciona mesmo sem interação direta na categoria (baseado na afinidade calculada, não em contagem literal). |
+| `test_features.py` (5 testes) | Unitário, sobre `ingestion/features.py`, com dado sintético em memória (sem I/O) — testa a **lógica** de cálculo: contagem de interações por qualquer tipo de evento, escolha da categoria de maior afinidade do usuário, critério de desempate por popularidade, formato/colunas da matriz de features gerada, e que `user_affinity_match=1` funciona mesmo sem interação direta na categoria. |
+| `test_data_quality.py` (11 testes) | Valida o **dado real** (`data/events.csv`, `data/products.csv`), não a lógica — diferente de `test_features.py`. Cobre: colunas esperadas, ausência de nulos, `event_type`/`category` dentro do conjunto conhecido, `product_id` referenciado em `events.csv` existe no catálogo, `price`>0, `avg_rating` 0–5, `popularity_score` 0–1. |
 | `test_validation.py` (4 testes, 9 casos parametrizados) | Unitário, sobre `app/validation.py`: normalização de maiúscula/espaço em branco, aceitação de formato válido, e uma bateria de rejeições (vazio, letras no lugar de dígitos, dígitos a mais/a menos, prefixo errado, injeção de SQL, XSS, tamanho absurdo). |
-
-### `tests_v2/` — a reimplementação (`Recomendador` + `app/recomendador/`)
-
-| Arquivo | O que testa |
-|---|---|
 | `test_user_check.py` (4 testes) | `is_known_user` isolada, com sets pequenos "de mentira" — não carrega modelo nem dado real. Cobre: usuário presente, ausente, set vazio, e documenta que a função **não** normaliza maiúscula/minúscula sozinha (é responsabilidade de quem chama). |
 | `test_recommend.py` (4 testes) | `montar_candidatos` e `ordenar_candidatos_por_score`, com tabelas pequenas "de mentira". Cobre: cold start devolve o catálogo inteiro com `interactions`/`user_affinity_match` zerados; usuário conhecido devolve só o histórico real dele; ordenação por score decrescente com corte em `top_n`; `top_n` maior que a quantidade de candidatos não quebra. Usa `monkeypatch` do pytest para substituir a função de score por uma falsa (necessário porque `ordenar_candidatos_por_score` importa `scores` diretamente, em vez de recebê-la como parâmetro — uma decisão de design que ficou registrada como ponto de atenção). |
 | `test_score.py` (3 testes) | `scores` isolada, com `scaler`/`model` falsos (fakes) previsíveis. Cobre: o índice do resultado bate com o índice do input (importante para o alinhamento posterior no DataFrame); o valor pontuado vem da coluna certa do `predict_proba` (classe 1, não classe 0); colunas extras no input (que não estão em `feature_cols`) são ignoradas sem quebrar. |
-| `test_service_completo.py` (14 testes) | `Recomendador` completo, com modelo e dados **reais** (fixture com `scope="module"`, carrega uma única vez). Cobre: `is_known_user` (True/False); `recommend()` devolve o número certo de recomendações e o `cold_start` correto (True/False) para cada caso; cada `Recommendation` tem os 4 campos certos, nos tipos certos; scores vêm ordenados decrescente; **integridade do modelo** — `model_version` e `feature_cols` batem exatamente com `model_card.json`, e o `scaler` foi ajustado para a mesma quantidade de features que `feature_cols` declara; **integridade dos dados** — todo `user_id` carregado do parquet segue o formato `u_XXXX` e está em minúsculo; e que um `user_id` tipo lixo (`"ksajdhakjsd"`) não quebra o `Recomendador` (só cai em cold start — a diferenciação entre "formato inválido" e "usuário novo legítimo" é responsabilidade da camada de validação, testada separadamente em `test_validation.py`). |
+| `test_service_completo.py` (14 testes) | `Recomendador` completo, com modelo e dados **reais** (fixture com `scope="module"`, carrega uma única vez). Cobre: `is_known_user` (True/False); `recommend()` devolve o número certo de recomendações e o `cold_start` correto (True/False) para cada caso; cada `Recommendation` tem os 4 campos certos, nos tipos certos; scores vêm ordenados decrescente; **integridade do modelo** — `model_version` e `feature_cols` batem exatamente com `model_card.json`, e o `scaler` foi ajustado para a mesma quantidade de features que `feature_cols` declara; **integridade dos dados** — todo `user_id` carregado do parquet segue o formato `u_XXXX` e está em minúsculo; e que um `user_id` tipo lixo (`"ksajdhakjsd"`) não quebra o `Recomendador` (só cai em cold start). |
+| `test_model_quality_gate.py` (3 testes) | Gate de qualidade: compara a distribuição de score do modelo carregado (real) contra um baseline calibrado (`scripts/compute_score_baseline.py`) — falha se o score médio sair da faixa esperada (usuário conhecido ou cold start), ou se os scores colapsarem num valor único (sinal de saturação). |
 
-**Total: 45 funções de teste, 53 casos executados** (a diferença vem dos testes parametrizados em
+**Total: 59 funções de teste, 67 casos executados** (a diferença vem dos testes parametrizados em
 `test_validation.py`, que rodam 9 vezes com inputs diferentes).
