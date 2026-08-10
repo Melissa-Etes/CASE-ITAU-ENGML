@@ -1,272 +1,163 @@
 # SOLUTION.md
 
-## Como rodar o projeto
+Entrega do case (personalization service em FastAPI, servindo um modelo de propensão de compra
+**já treinado**). O foco pedido pelo [README](README.md) é 100% engenharia — ingestão de dados,
+API, tratamento de edge cases, testes e observabilidade — não treino ou melhoria do modelo. Este
+documento cobre a narrativa de decisões e trade-offs; para outras necessidades, ver a documentação
+complementar:
 
-### Local (Python 3.12+)
-
-```bash
-pip install -r requirements.txt
-python -m ingestion.build_features   # gera data/processed/user_product_features.parquet
-uvicorn app.main:app --reload
-```
-
-A API sobe em `http://localhost:8000`. Documentação interativa (Swagger) em `http://localhost:8000/docs`.
-
-### Testes
-
-```bash
-pytest -v
-```
-
-26 testes: unitários de feature engineering (dado sintético, sem I/O), unitários de validação de
-input, testes do endpoint principal (usuário conhecido, cold start, validação de `top_n`), e um
-teste de integração via `TestClient` do FastAPI que sobe a aplicação real inteira — modelo, scaler
-e dados de verdade — sem mockar nenhuma camada interna.
-
-### Docker
-
-```bash
-docker build -t personalization-service .
-docker run -d --name pers -p 8000:8000 personalization-service
-docker ps          # confirma STATUS: healthy
-curl http://localhost:8000/health
-curl http://localhost:8000/recommendations/u_0231
-```
-
-O job de ingestão (`ingestion/build_features.py`) roda **dentro do build da imagem** — o container
-já sobe com o parquet de features pronto, sem depender de nada externo no startup.
-
-### Stack completa via docker-compose (API + Prometheus + Grafana)
-
-`docker-compose.yml` orquestra os três serviços como **containers separados** (não junta tudo numa
-imagem só — cada um mantém seu ciclo de vida, escalabilidade e imagem oficial independentes; ver
-decisão nº 9 abaixo para o porquê).
-
-| Ação | Comando |
+| Preciso de... | Vá em |
 |---|---|
-| Subir tudo (build da API + Prometheus + Grafana) | `docker compose up -d --build` |
-| Ver status dos containers | `docker compose ps` |
-| Ver logs de todos os serviços | `docker compose logs -f` |
-| Desligar tudo | `docker compose down` |
+| Comandos do dia a dia (subir, testar, URLs) | [`SOLUTION_ATUAL.md`](SOLUTION_ATUAL.md) |
+| O porquê de cada decisão, em formato curto e consultável | [`docs/adr/`](docs/adr/) |
+| Onde mexer para um tipo de mudança específico | [`docs/ROUTING.md`](docs/ROUTING.md) |
+| Visão geral de navegação (humano + IA) | [`AGENTS.md`](AGENTS.md) |
 
-Dashboard em `http://localhost:3000/d/personalization-service` (autenticação anônima habilitada
-só para essa demo local, ver seção de observabilidade abaixo).
+---
 
-### Endpoints
+## O que foi pedido vs. o que foi entregue
 
-| Rota | Descrição |
+| Pedido pelo case | Entregue |
 |---|---|
-| `GET /health` | health check simples |
-| `GET /recommendations/{user_id}?top_n=10` | ranking de produtos para o usuário, com score do modelo |
-| `GET /metrics` | métricas Prometheus (contagem de requests, latência, erros) |
-| `GET /docs` | documentação interativa (Swagger, gerada pelo FastAPI) |
+| Servir o modelo já treinado via API | `GET /recommendations/{user_id}` (FastAPI), ranking por score do modelo |
+| Tratar edge cases (usuário sem histórico) | Cold start no mesmo caminho de scoring (ADR 0002) |
+| Testes | 59 funções de teste / 67 casos, incluindo integração real sem mock, qualidade de dado e gate de qualidade de modelo |
+| Observabilidade | Logs estruturados (JSON) + métricas Prometheus + dashboard Grafana provisionado |
+| Documentação de decisões | Este arquivo + `docs/adr/` (8 registros formais) |
+
+---
+
+## Arquitetura, em uma frase por camada
+
+Padrão MVC: **Model** = `app/service_completo.py` (classe `Recomendador`, delega lógica pura para
+`app/recomendador/`) · **View** = `app/schemas.py` · **Controller** = `app/routers/recommendations.py`
+· **Composição** = `app/main.py`. Ver diagrama do ciclo de vida de uma requisição em
+[`AGENTS.md`](AGENTS.md).
 
 ---
 
 ## Decisões de arquitetura e trade-offs
 
-### 1. Features pré-computadas em batch, não calculadas em request-time
+Resumo narrativo — o porquê completo de cada uma, com consequências detalhadas, está no ADR
+correspondente.
 
-`ingestion/build_features.py` roda como job offline (no build da imagem Docker) e gera um parquet
-com a matriz completa `user_id × product_id` já com as 5 features do modelo. A API só **lê** esse
-parquet no startup (`app/model_service.py`) e nunca recalcula nada por request.
+### Dados
 
-**Por quê:** os dados recebidos são um snapshot histórico, não um stream em tempo real — não fazia
-sentido pagar o custo de groupby/join a cada requisição HTTP. Isso também simplifica o teste da
-lógica de features, que fica isolada e sem I/O.
+**Features pré-computadas em batch**, não calculadas por request. `ingestion/build_features.py`
+roda offline (no build da imagem Docker), gera um parquet com a matriz completa
+`user_id × product_id`; a API só lê. Trade-off aceito: atualizar dados exige rodar o job de novo,
+sem tempo real. → [ADR 0001](docs/adr/0001-features-batch-precomputadas.md)
 
-**Trade-off aceito:** se o histórico de eventos mudar, é preciso rodar o job de novo (ou rebuildar
-a imagem) para atualizar as recomendações — não há atualização em tempo real. Um usuário novo que
-começa a interagir com o catálogo continua sendo tratado como cold start até o próximo ciclo de
-ingestão rodar; a API não escreve de volta em `events.csv`, só lê o snapshot pronto.
+**`user_affinity_match`** é derivado juntando `events.csv` + `products.csv`, contando interações
+por categoria e escolhendo a de maior contagem (desempate por popularidade média, depois ordem
+alfabética — determinístico). `interactions` conta todo `event_type` igualmente, mantendo a lógica
+simples e alinhada à definição de referência do `model_card.json`.
 
-**O que eu faria diferente com mais tempo:** um pipeline de ingestão incremental — reprocessar
-periodicamente (ex: a cada hora) ou por streaming de eventos (Kinesis/similar), e separar o
-artefato de dados do build da imagem Docker (publicar em S3 versionado, API busca o mais recente
-no startup), para não acoplar atualização de dado a deploy de código.
+### Modelo servido
 
-### 2. Derivação de `user_affinity_match`
+**Cold start unificado**: usuário sem histórico é tratado como neutro
+(`interactions=0`, `user_affinity_match=0`) para todo o catálogo, e pontuado pela **mesma** função
+de scoring do usuário conhecido — sem duplicar lógica de ranking em dois caminhos que poderiam
+divergir. → [ADR 0002](docs/adr/0002-cold-start-caminho-unico.md)
 
-Calculada juntando `events.csv` + `products.csv` por `product_id`, contando interações por
-usuário/categoria, e escolhendo a categoria com maior contagem como "categoria de afinidade" de
-cada usuário (`ingestion/features.py`).
+**Validação de input separada de cold start**: `user_id` malformado → `400`; formato válido mas
+desconhecido → `200` com cold start. Evita que lixo de input vire silenciosamente uma resposta
+"válida" genérica. → [ADR 0003](docs/adr/0003-validacao-separada-de-cold-start.md)
 
-**Critério de desempate:** em caso de empate na contagem, escolho a categoria com maior
-`popularity_score` médio entre os produtos empatados; se ainda empatar, desempato por ordem
-alfabética — garante um resultado determinístico, sem aleatoriedade.
+### API e infraestrutura
 
-**Simplificação assumida:** `interactions` conta qualquer `event_type` (view/click/add_to_cart/
-purchase) igualmente. O model_card não distingue por tipo de evento no cálculo de referência, e
-optei por manter a lógica mais simples e mais próxima da definição de referência usada para gerar
-os dados de treino, em vez de introduzir uma ponderação que o modelo não foi treinado esperando ver.
+**FastAPI, endpoint síncrono** (`def`, não `async def`) — o handler só faz lookup em memória e
+`predict_proba`, sem I/O de rede; FastAPI já roda handlers síncronos em threadpool.
+→ [ADR 0004](docs/adr/0004-fastapi-sync-endpoint.md)
 
-**O que eu faria diferente com mais tempo:** ponderar a afinidade por tipo de evento (compra pesa
-mais que view) e por recência (usando a coluna `timestamp`, hoje não utilizada) — ambos os sinais
-já existem no dado bruto e não são explorados.
+**Três containers separados** (API, Prometheus, Grafana) via `docker-compose.yml`, em vez de uma
+imagem única — cada serviço com ciclo de vida próprio, reaproveitando imagens oficiais já
+mantidas. → [ADR 0005](docs/adr/0005-containers-separados.md)
 
-### 3. Cold start unificado no mesmo caminho de código
+**Sem mock no teste de integração** — sobe a aplicação real (modelo, scaler, dados) via
+`TestClient`, de propósito, para provar que as peças se encaixam de verdade.
+→ [ADR 0006](docs/adr/0006-sem-mock-testes-integracao.md)
 
-Quando `user_id` não existe no histórico (`app/model_service.py::recommend`), trato o usuário como
-neutro (`interactions=0`, `user_affinity_match=0`) para todos os produtos do catálogo e deixo o
-próprio modelo pontuar usando só as features de produto (`price`, `avg_rating`,
-`popularity_score`). Na prática, o ranking se aproxima de "produtos mais populares/bem avaliados".
+**CI automatizado, sem CD**: cada push roda ingestão + suíte de testes completa + build da imagem
+(taggeada por commit) + healthcheck + scan de vulnerabilidade (Trivy). Sem deploy automático —
+não há alvo de infraestrutura real provisionado para publicar. → [ADR 0007](docs/adr/0007-ci-sem-cd.md)
 
-**Por quê:** usuário conhecido e cold start convergem na mesma linha de scoring (`_score()`) — só
-muda de onde vêm os dados de entrada. Isso evita duplicar a lógica de ranking em dois caminhos de
-código que poderiam divergir com o tempo, e mantém a garantia do case de que "o score do modelo
-deve ser a base do ranking" mesmo no fallback.
+**`Recomendador` (`app/service_completo.py`) é o Model atual**, substituindo a implementação
+original (`app/model_service.py`, removida) por uma reimplementação com interface idêntica —
+troca feita sem alterar nenhuma linha do Controller, View, métricas ou dashboard, porque as duas
+implementações respeitam o mesmo contrato. → [ADR 0008](docs/adr/0008-recomendador-substitui-model-service.md)
 
-### 4. Validação de input separada de cold start
+---
 
-`app/validation.py` normaliza (trim + lowercase) e valida o formato do `user_id` (`u_` + 4 dígitos,
-observado nos dados reais) **antes** de qualquer lógica de negócio. Um `user_id` malformado (typo,
-caracteres inválidos, tamanho absurdo, vazio) retorna `400 Bad Request`; um `user_id` bem formado
-mas ausente no histórico continua caindo em cold start (`200`).
+## Testes
 
-**Por quê:** misturar os dois casos faria qualquer input inválido virar silenciosamente uma
-resposta "válida" genérica, escondendo bugs de integração do lado de quem consome a API. O
-`user_id` nunca é interpolado em SQL/shell (só comparação de string e lookup de índice em memória),
-então essa validação é sobre qualidade de contrato de API, não sobre um vetor de injeção real.
+59 funções de teste, 67 casos executados (`python -m pytest -v`, sem path especial — coleta tudo
+em `tests/`), cobrindo 4 categorias:
 
-### 5. FastAPI como framework de API
+1. **Lógica** (dado sintético, sem I/O): feature engineering, funções puras de `app/recomendador/`.
+2. **Integração real** (sem mock): `TestClient` sobe a API inteira; casos de usuário conhecido,
+   cold start, validação de `top_n`, normalização de `user_id`, rejeição de formato inválido
+   (incluindo tentativas de SQL injection/XSS), métricas expostas.
+3. **Qualidade dos dados reais** (`tests/test_data_quality.py`): valida `events.csv`/`products.csv`
+   de verdade — schema, nulos, ranges plausíveis, referências entre arquivos íntegras. Distinto dos
+   testes de lógica: pega dado corrompido, não bug de código.
+4. **Gate de qualidade do modelo** (`tests/test_model_quality_gate.py`): compara a distribuição de
+   score do modelo carregado contra um baseline calibrado
+   (`scripts/compute_score_baseline.py`) — falha o CI se o score saturar ou desviar do esperado,
+   antes de qualquer coisa chegar em produção.
 
-Escolhido por: validação automática de tipos via type hints (rejeita `top_n` fora do range 1-60
-sem código manual); `TestClient` embutido, usado no teste de integração; suporte nativo a
-`lifespan` para carregar modelo/dados uma única vez no startup; documentação Swagger automática;
-e integração pronta com `prometheus-fastapi-instrumentator` para métricas.
+Detalhe arquivo-por-arquivo em [`SOLUTION_ATUAL.md`](SOLUTION_ATUAL.md#testes).
 
-O endpoint principal é `def` síncrono, não `async def` — tudo que ele faz (lookup em memória,
-`scaler.transform`, `model.predict_proba`) é I/O-free e síncrono por natureza; o FastAPI já
-executa handlers síncronos em threadpool, então múltiplos requests continuam sendo atendidos em
-paralelo sem necessidade de `await`. `async def` só compensaria se o handler fizesse alguma
-chamada de rede real (ex: um banco via driver assíncrono).
+---
 
-### 6. Classe `RecommendationService` em vez de funções soltas
+## O que eu loga/meço hoje
 
-Encapsula modelo, scaler e features carregados **uma única vez** no `__init__`, reaproveitados em
-todo request subsequente sem I/O repetido. Funções soltas não têm memória própria entre chamadas —
-alguém teria que ficar reentregando modelo/scaler a cada chamada. O construtor aceita os caminhos
-de arquivo como parâmetro com valor padrão, o que facilita troca de dependência em teste (injeção
-de dependência) sem alterar a lógica interna.
+- Log estruturado JSON (`structlog`) por request: `user_id`, `latency_ms`, `cold_start`.
+- Aviso (`invalid_user_id`) para toda tentativa de request malformado.
+- `/metrics` (Prometheus): contagem de requests por rota/status, histograma de latência (p50/p95).
+- Métrica de negócio `recommendation_requests_total{cold_start=...}` — taxa de cold start como
+  sinal de produto, não só técnico.
+- **Distribuição de score servido** (`recommendation_score`, Histogram) — desvio brusco é alerta de
+  qualidade do modelo antes de alguém reclamar.
+- **Idade do snapshot de features** (`features_data_age_seconds`, Gauge recalculado a cada scrape)
+  — relevante porque a ingestão é batch, não tempo real.
+- `HEALTHCHECK` no Dockerfile, dashboard Grafana provisionado automaticamente via
+  `docker-compose.yml` (Prometheus faz scrape a cada 5s).
 
-### 7. Sem mock nos testes
-
-Nos testes de feature engineering não há dependência externa a substituir — é cálculo puro sobre
-DataFrames em memória, então uso dado sintético em vez de mock. No teste de integração, o objetivo
-é justamente o oposto de isolar: provar que as peças reais (modelo, scaler, parquet, servidor) se
-encaixam de verdade — mockar qualquer uma delas destruiria o propósito do teste. Mock teria feito
-sentido para simular uma falha específica de uma dependência (ex: modelo lançando exceção), cenário
-que não estava no escopo definido pelo case.
-
-### 8. Job de ingestão rodando no build da imagem Docker
-
-`RUN python -m ingestion.build_features` acontece durante o `docker build`, não no startup do
-container — o container sobe já com o parquet pronto, startup rápido e sem dependência externa.
-
-**Trade-off aceito:** atualizar os dados exige rebuild + redeploy da imagem, não só reiniciar o
-container. Documentado como decisão consciente de simplicidade em troca de atualização em tempo
-real (ver item 1).
-
-### 9. Containers separados para API, Prometheus e Grafana (não uma imagem única)
-
-`docker-compose.yml` define três serviços, cada um com sua própria imagem e ciclo de vida — não
-embuti Prometheus/Grafana dentro da imagem da API.
-
-**Por quê:** segue o princípio de um processo principal por container. Cada serviço pode ser
-atualizado, escalado e substituído de forma independente (ex: trocar a versão do Grafana sem
-rebuildar a API); as imagens oficiais `prom/prometheus` e `grafana/grafana` já são mantidas e
-atualizadas pelos próprios projetos, evitando reinventar isso dentro do meu próprio build; e uma
-falha num serviço (ex: Grafana trava) não arrasta os outros junto, diferente de um único processo
-supervisionando tudo dentro do mesmo container.
-
-`docker compose up -d --build` sobe os três de uma vez sem juntar nada; `docker compose down`
-desliga todos juntos. Em produção, o equivalente seria um Pod por serviço no Kubernetes, ou
-serviços gerenciados separados (ver seção de observabilidade abaixo).
-
-### 10. CI, sem CD
-
-`.github/workflows/ci.yml` roda automaticamente a cada `push`/`pull request` para `main`: instala
-dependências, roda o job de ingestão, roda os 28 testes (`pytest`), e builda + sobe a imagem Docker
-validando o `/health` — o gate mínimo antes de qualquer merge.
-
-**Por que só CI, sem CD (deploy automático):** CD exige um alvo real para publicar (registry de
-imagens, cluster/serviço de nuvem, credenciais) — nada disso existe neste projeto, que não tem
-infraestrutura provisionada. Implementar CD sem alvo real seria simular um passo que não faz
-sentido sem a AWS por trás (ver discussão de arquitetura AWS/Terraform, que ficou como conceito,
-não implementação). CI sozinho já entrega o valor real disponível agora: nenhum código quebrado
-chega a `main` sem passar por teste e build.
+**Adicionaria com mais tempo:** alertas configurados sobre os thresholds do dashboard; tracing
+distribuído (só relevante se este serviço passar a chamar outros); detecção formal de data drift
+(comparar distribuição de produção contra distribuição de treino — hoje só monitoro a distribuição
+de *output*, não comparo contra uma referência de treino).
 
 ---
 
 ## O que eu faria diferente com mais tempo
 
-- **Ingestão incremental**, para que cold start se resolva sozinho conforme o usuário interage,
-  em vez de depender de um novo build/deploy.
-- **Ponderar `user_affinity_match` por tipo de evento e recência**, usando dados já disponíveis
-  (`event_type`, `timestamp`) que hoje não são explorados.
-- **Separar artefato de dados do build da imagem** — publicar o parquet versionado em S3 e ter a
-  API buscar a versão mais recente no startup, desacoplando atualização de dado de deploy de código.
-- **Autoscaling e infraestrutura como código** (Terraform/CDK) para o deploy em nuvem — hoje
-  ficou como discussão de arquitetura, sem provisionamento real.
-- **Regra de negócio para produtos já comprados**: hoje o ranking pode recomendar um produto que o
-  usuário já comprou; um filtro de exclusão (ou penalização) seria uma melhoria de produto natural.
-
-## O que eu loga/meço hoje e o que adicionaria com mais tempo
-
-**Hoje:**
-- Log estruturado em JSON (via `structlog`) em todo request principal, com `user_id`, `latency_ms`
-  (medida em torno da chamada ao `RecommendationService`) e `cold_start` — os três campos pedidos
-  explicitamente pelo case.
-- Log de aviso (`invalid_user_id`) para toda tentativa de request com `user_id` malformado.
-- `/metrics` em formato Prometheus (via `prometheus-fastapi-instrumentator`): contagem de requests
-  por rota/status code, e um histograma de latência do qual dá para derivar p50/p95.
-- Métrica de negócio dedicada `recommendation_requests_total{cold_start=...}` (via
-  `prometheus_client.Counter`), permitindo calcular a taxa de cold start como sinal de produto
-  (quantos usuários novos recebem recomendação não-personalizada), não só sinal técnico.
-- **Distribuição dos scores retornados** (`recommendation_score`, `Histogram`): não só a contagem de
-  requests, mas os valores de score efetivamente servidos. Um desvio brusco na distribuição (ex: tudo
-  concentrado perto de 0) é sinal de alerta de qualidade do modelo antes mesmo de alguém reclamar —
-  recomendação de monitoramento de ML além das métricas técnicas genéricas de request/latência/erro.
-- **Idade do snapshot de features** (`features_data_age_seconds`, `Gauge` com `set_function`,
-  recalculado a cada scrape a partir do `mtime` do parquet): expõe há quanto tempo os dados não são
-  atualizados, relevante porque a ingestão roda em batch, não em tempo real (ver decisão nº 1). Também
-  exposto em `/health` como `features_age_seconds`.
-- `HEALTHCHECK` no Dockerfile batendo em `/health`, usado por Docker/ECS para saber quando reiniciar
-  um container travado.
-- **Stack de observabilidade real, conectada, via `docker-compose.yml`**: Prometheus faz scrape do
-  `/metrics` da API a cada 5s; Grafana sobe com datasource e um dashboard já provisionados
-  (`observability/`), sem configuração manual — requests/s por status, latência p50/p95, taxa de
-  erro 5xx, taxa de cold start, distribuição de score (heatmap), score médio e idade dos dados, todos
-  atualizando ao vivo. `docker compose up -d` sobe os três serviços; dashboard em
-  `http://localhost:3000/d/personalization-service` (auth anônima habilitada só para essa demo local,
-  não usar esse modo em produção).
-
-**Adicionaria com mais tempo:**
-- Alertas configurados sobre thresholds de latência (p95) e taxa de erro (ex: via Alertmanager).
-- Tracing distribuído com um trace ID amarrando todos os logs de uma mesma requisição — relevante
-  caso este serviço passe a chamar outros serviços no futuro.
-- Em produção real, trocar a autenticação anônima do Grafana por login/SSO, e mover
-  Prometheus/Grafana para um serviço gerenciado (Amazon Managed Prometheus/Grafana) em vez de
-  containers próprios sem persistência.
-- **Detecção de data drift**: comparar a distribuição de features de entrada (e de scores) em
-  produção contra a distribuição vista no treino (ex: KL divergence, Evidently AI). Não implementado
-  porque exigiria guardar uma distribuição de referência do treino, que não faz parte do artefato
-  recebido no case.
+- **Ingestão incremental** — cold start se resolveria sozinho conforme o usuário interage, em vez
+  de depender de novo build/deploy.
+- **Ponderar `user_affinity_match` por tipo de evento e recência**, usando `event_type`/`timestamp`
+  (já existem no dado bruto, não explorados hoje).
+- **Separar artefato de dados do build da imagem** — publicar o parquet versionado externamente,
+  API busca a versão mais recente no startup.
+- **Escalar além de um processo único** — o teste de carga (abaixo) achou saturação por
+  threadpool; validar `uvicorn --workers N` dentro do Docker/Linux (não testado no prazo do case,
+  por limitação do ambiente onde rodei o teste — Windows nativo).
+- **Filtro de produtos já comprados** no ranking — hoje o modelo pode recomendar algo que o usuário
+  já adquiriu.
+- **Autenticação e rate limiting** — gap consciente, fora do escopo definido pelo case
+  (engenharia de serving), mas real para produção.
 
 ---
 
 ## Teste de performance / carga
 
-Rodei um teste de carga real (`locustfile.py`, na raiz do repo) contra a API subida via
-`docker-compose`, simulando usuários simultâneos batendo em `/recommendations/{user_id}` (mix de
-usuários conhecidos e cold start) e `/health`.
+Teste de carga real (`locustfile.py`) contra a API via `docker-compose`, simulando usuários
+simultâneos batendo em `/recommendations/{user_id}` (mix conhecido/cold start) e `/health`.
 
 ```bash
 pip install locust
 locust -f locustfile.py --host http://localhost:8000 --headless --users 150 --spawn-rate 50 --run-time 20s
 ```
-
-### Resultados
 
 | Usuários simultâneos | Throughput | p95 | Taxa de erro |
 |---|---|---|---|
@@ -275,21 +166,13 @@ locust -f locustfile.py --host http://localhost:8000 --headless --users 150 --sp
 | 150 | 184 req/s | 870 ms | 0% |
 | 300 | 164 req/s | 2.200 ms | 0% |
 
-**Achado:** o throughput satura em **~180-190 req/s** independente de quantos usuários simultâneos
-são jogados contra a API (o mesmo teto aparece em 50, 150 e 300 usuários) — sinal característico de
-saturação do **threadpool interno do FastAPI** (o endpoint é `def` síncrono, então cada request
-ocupa uma das ~40 threads padrão do pool enquanto processa; acima disso, requests só ficam na fila,
-não falham, mas a latência cresce quase linearmente). Não houve nenhum erro em nenhum nível testado
-— a degradação é só de latência, não de disponibilidade.
+**Achado:** throughput satura em **~180-190 req/s** independente da concorrência — sinal de
+saturação do threadpool interno do Uvicorn (endpoint síncrono ocupa uma das ~40 threads padrão
+por request; acima disso, fila cresce, latência sobe quase linear, mas **zero erros** em qualquer
+nível testado — degradação é só de latência, não de disponibilidade).
 
-**Causa raiz e correção conhecida:** um único processo Uvicorn usa efetivamente 1 núcleo de CPU para
-código Python (GIL). A correção padrão é rodar múltiplos **workers** do Uvicorn (`--workers N`, um
-processo por núcleo disponível) atrás de um load balancer, ou usar Gunicorn como process manager com
-workers Uvicorn. Não validei essa correção com um teste de carga comparativo: `uvicorn --workers`
-usa multiprocessing, que tem suporte instável no Windows nativo (ambiente onde rodei o teste) —
-funcionaria normalmente dentro do container Linux/Docker ou num ambiente de CI, mas não cheguei a
-rodar esse comparativo dentro do tempo do case.
-
-**O que eu faria com mais tempo:** repetir o teste de carga com `--workers 4` dentro do container
-Docker (Linux, sem a limitação do Windows), comparar o novo teto de throughput, e definir o número
-de workers/réplicas do ECS Fargate com base nesse número real, em vez de um chute.
+**Causa raiz e correção conhecida:** um processo Uvicorn usa efetivamente 1 núcleo de CPU (GIL)
+para código Python. Correção padrão: múltiplos workers (`uvicorn --workers N`) atrás de um load
+balancer. **Não validada** — `--workers` usa multiprocessing, instável no Windows nativo (ambiente
+onde rodei o teste); funcionaria normalmente dentro do container Linux/CI, mas não coube repetir
+o comparativo no prazo do case.
