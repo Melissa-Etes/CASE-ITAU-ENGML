@@ -28,6 +28,9 @@ FEATURES_PATH = BASE_DIR / "data" / "processed" / "user_product_features.parquet
 TOP_N = 10
 
 
+# Roda o modelo real sobre o snapshot de features real, calcula o top-10
+# score por usuario (o que a API de fato retorna), e imprime a distribuicao
+# (media, desvio, quantis) -- esse numero vira o baseline do gate de qualidade.
 def main() -> None:
     with open(MODEL_PATH, "rb") as f:
         artifact = pickle.load(f)

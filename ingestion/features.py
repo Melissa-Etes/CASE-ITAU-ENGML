@@ -51,13 +51,17 @@ def build_feature_matrix(events: pd.DataFrame, products: pd.DataFrame) -> pd.Dat
     para que o endpoint de recomendação possa ranquear qualquer produto para
     qualquer usuário conhecido (não só os que ele já interagiu).
     """
+    # Produto cartesiano: todo usuario visto x todo produto do catalogo
     users = events[["user_id"]].drop_duplicates()
     matrix = users.merge(products, how="cross")
 
+    # Gruda a contagem de interacoes real; pares sem interacao ficam com NaN -> 0
     interactions = compute_interactions(events)
     matrix = matrix.merge(interactions, on=["user_id", "product_id"], how="left")
     matrix["interactions"] = matrix["interactions"].fillna(0).astype(int)
 
+    # Gruda a categoria favorita de cada usuario, e compara linha a linha
+    # contra a categoria real do produto -> vira 0 ou 1
     top_category = compute_user_top_category(events, products)
     matrix = matrix.merge(top_category, on="user_id", how="left")
     matrix["user_affinity_match"] = (matrix["category"] == matrix["top_category"]).astype(int)

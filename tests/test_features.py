@@ -7,6 +7,7 @@ from ingestion.features import (
 )
 
 
+# Dado sintetico fixo (nao le arquivo real) usado por todos os testes deste arquivo
 def _events():
     return pd.DataFrame(
         [
@@ -18,6 +19,7 @@ def _events():
     )
 
 
+# Catalogo sintetico fixo, correspondente aos product_id usados em _events()
 def _products():
     return pd.DataFrame(
         [
@@ -27,18 +29,21 @@ def _products():
     )
 
 
+# view + click no mesmo produto contam como 2 interacoes (todo event_type vale igual)
 def test_compute_interactions_counts_all_event_types():
     result = compute_interactions(_events())
     row = result[(result.user_id == "u1") & (result.product_id == "pA")].iloc[0]
     assert row["interactions"] == 2  # view + click
 
 
+# A categoria com mais interacoes vence, mesmo com poucos eventos no total
 def test_compute_user_top_category_picks_highest_count():
     top = compute_user_top_category(_events(), _products())
     u1 = top[top.user_id == "u1"].iloc[0]
     assert u1["top_category"] == "esporte"  # 2 interações em pA (esporte) vs 1 em pB (livros)
 
 
+# Usuario com uma unica categoria de interacao nao precisa de desempate
 def test_compute_user_top_category_tiebreak_by_popularity():
     # u2 so tem 1 interacao com pB -> top category = livros, sem ambiguidade
     top = compute_user_top_category(_events(), _products())
@@ -46,6 +51,7 @@ def test_compute_user_top_category_tiebreak_by_popularity():
     assert u2["top_category"] == "livros"
 
 
+# A matriz final tem todas as colunas esperadas e uma linha por par usuario x produto
 def test_build_feature_matrix_has_expected_shape_and_columns():
     matrix = build_feature_matrix(_events(), _products())
     assert set(matrix.columns) >= {
@@ -56,6 +62,8 @@ def test_build_feature_matrix_has_expected_shape_and_columns():
     assert len(matrix) == 4
 
 
+# affinity_match compara categoria do produto vs. categoria favorita, sem
+# precisar que o usuario tenha interagido com aquele produto especifico
 def test_user_affinity_match_is_1_for_top_category_even_without_direct_interaction():
     matrix = build_feature_matrix(_events(), _products())
     # u1 tem afinidade com esporte (pA); pA e do proprio u1 -> affinity=1

@@ -34,11 +34,14 @@ SCORE_MEDIO_MINIMO = 0.03
 SCORE_MEDIO_MAXIMO = 0.35
 
 
+# Carrega o Recomendador real uma vez so, reusado pelos 3 testes deste arquivo
 @pytest.fixture(scope="module")
 def r():
     return Recomendador(MODEL_PATH)
 
 
+# Roda recommend() para uma amostra de usuarios conhecidos e confere que a
+# media dos scores devolvidos cai dentro da faixa aceitavel do baseline
 def test_score_medio_do_top10_por_usuario_dentro_do_baseline(r):
     todos_scores = []
     for user_id in USUARIOS_CONHECIDOS_AMOSTRA:

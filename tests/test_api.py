@@ -14,6 +14,7 @@ KNOWN_USER = "u_0231"  # existe em data/events.csv
 UNKNOWN_USER = "u_9999"  # formato valido, mas fora do range 0000-0499 usado em events.csv
 
 
+# /health devolve status ok e os numeros esperados (versao, 500 usuarios conhecidos)
 def test_health():
     with TestClient(app) as client:
         resp = client.get("/health")
@@ -25,6 +26,7 @@ def test_health():
         assert body["features_age_seconds"] >= 0
 
 
+# Usuario conhecido: cold_start=False, quantidade certa de itens, scores decrescentes e validos
 def test_recommendations_for_known_user_are_ranked_by_score():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/{KNOWN_USER}?top_n=5")
@@ -43,6 +45,7 @@ def test_recommendations_for_known_user_are_ranked_by_score():
             assert set(r.keys()) == {"product_id", "score", "category", "price"}
 
 
+# Usuario desconhecido: cold_start=True, mas ainda devolve recomendacoes validas, sem erro
 def test_recommendations_for_unknown_user_triggers_cold_start():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/{UNKNOWN_USER}?top_n=5")
@@ -55,18 +58,21 @@ def test_recommendations_for_unknown_user_triggers_cold_start():
         assert scores == sorted(scores, reverse=True)
 
 
+# top_n=3 pedido -> exatamente 3 recomendacoes devolvidas
 def test_top_n_is_respected():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/{KNOWN_USER}?top_n=3")
         assert len(resp.json()["recommendations"]) == 3
 
 
+# top_n=0 esta fora do range 1-60 declarado no Query() -> 422 automatico do FastAPI
 def test_top_n_out_of_range_is_rejected():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/{KNOWN_USER}?top_n=0")
         assert resp.status_code == 422
 
 
+# "U_0231" e "u_0231" devem devolver exatamente a mesma resposta (normalizacao)
 def test_uppercase_user_id_is_normalized_and_still_works():
     with TestClient(app) as client:
         resp_upper = client.get(f"/recommendations/{KNOWN_USER.upper()}?top_n=3")
@@ -75,6 +81,7 @@ def test_uppercase_user_id_is_normalized_and_still_works():
         assert resp_upper.json()["recommendations"] == resp_lower.json()["recommendations"]
 
 
+# user_id com "/" no meio quebra o roteamento (vira outro path) antes mesmo de validar
 def test_malformed_user_id_is_rejected_with_400():
     with TestClient(app) as client:
         resp = client.get("/recommendations/<script>alert(1)</script>?top_n=3")
@@ -82,6 +89,7 @@ def test_malformed_user_id_is_rejected_with_400():
         assert resp.status_code == 404
 
 
+# Tentativa de SQL injection no user_id -> barrada pelo regex de formato, 400
 def test_user_id_with_injection_like_chars_is_rejected_with_400():
     with TestClient(app) as client:
         resp = client.get("/recommendations/u_0231%3Bdrop_table?top_n=3")
@@ -89,6 +97,7 @@ def test_user_id_with_injection_like_chars_is_rejected_with_400():
         assert "user_id" in resp.json()["detail"]
 
 
+# O corpo do erro 400 traz status_code e detail juntos, nao so no header HTTP
 def test_error_response_body_includes_status_code_alongside_message():
     with TestClient(app) as client:
         resp = client.get("/recommendations/xyz123")
@@ -98,12 +107,14 @@ def test_error_response_body_includes_status_code_alongside_message():
         assert body["detail"] == "user_id deve seguir o formato 'u_' + 4 digitos (ex: u_0231)"
 
 
+# user_id absurdamente longo -> 400, nao trava nem estoura erro 500
 def test_absurdly_long_user_id_is_rejected_with_400():
     with TestClient(app) as client:
         resp = client.get(f"/recommendations/u_0231{'a' * 100}?top_n=3")
         assert resp.status_code == 400
 
 
+# Confirma que as metricas customizadas (score, idade dos dados) aparecem em /metrics
 def test_score_histogram_and_data_age_are_exposed_in_metrics():
     with TestClient(app) as client:
         client.get(f"/recommendations/{KNOWN_USER}?top_n=3")

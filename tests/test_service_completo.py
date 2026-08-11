@@ -25,6 +25,7 @@ USER_ID_CONHECIDO = "u_0100"
 USER_ID_DESCONHECIDO = "nao_existe_123"
 
 
+# Carrega o Recomendador com modelo/dados REAIS uma unica vez, reusado por todos os testes
 @pytest.fixture(scope="module")
 def r():
     return Recomendador(MODEL_PATH)
@@ -33,10 +34,12 @@ def r():
 # ---- is_known_user ----
 
 
+# Usuario que existe de verdade no parquet -> True
 def test_is_known_user_true_para_usuario_existente(r):
     assert r.is_known_user(USER_ID_CONHECIDO) is True
 
 
+# Usuario que nao existe -> False
 def test_is_known_user_false_para_usuario_inexistente(r):
     assert r.is_known_user(USER_ID_DESCONHECIDO) is False
 
@@ -48,12 +51,14 @@ def test_is_known_user_false_para_usuario_inexistente(r):
 # app/routers/recommendations.py (ver app/service_completo.py).
 
 
+# top_n=5 pedido -> exatamente 5 recomendacoes devolvidas
 def test_recommend_usuario_conhecido_devolve_top_n_recomendacoes(r):
     recs, cold_start = r.recommend(USER_ID_CONHECIDO, top_n=5)
 
     assert len(recs) == 5
 
 
+# Usuario conhecido nunca cai em cold start
 def test_recommend_usuario_conhecido_tem_cold_start_false(r):
     _, cold_start = r.recommend(USER_ID_CONHECIDO)
 
@@ -68,12 +73,14 @@ def test_recommend_cold_start_nao_estoura_erro(r):
     r.recommend(USER_ID_DESCONHECIDO)  # nao deve lancar excecao
 
 
+# Usuario desconhecido sempre cai em cold start
 def test_recommend_usuario_desconhecido_tem_cold_start_true(r):
     _, cold_start = r.recommend(USER_ID_DESCONHECIDO)
 
     assert cold_start is True
 
 
+# Cada Recommendation devolvida tem os 4 campos, nos tipos certos
 def test_recommend_cada_item_tem_os_4_campos_esperados(r):
     recs, _ = r.recommend(USER_ID_CONHECIDO, top_n=3)
 
@@ -84,6 +91,7 @@ def test_recommend_cada_item_tem_os_4_campos_esperados(r):
         assert isinstance(rec.price, float)
 
 
+# A lista final vem ordenada do maior score para o menor
 def test_recommend_ordenado_do_maior_score_para_o_menor(r):
     recs, _ = r.recommend(USER_ID_CONHECIDO)
     scores_obtidos = [rec.score for rec in recs]
@@ -98,12 +106,14 @@ def test_recommend_ordenado_do_maior_score_para_o_menor(r):
 # vice-versa) -- os dois ficariam "descasados" e esses testes acusariam.
 
 
+# Le o model_card.json direto do disco (fonte da verdade), separado do que o Recomendador carregou
 @pytest.fixture(scope="module")
 def model_card():
     with open(MODEL_PATH / "model_card.json", encoding="utf-8") as f:
         return json.load(f)
 
 
+# A versao carregada pelo Recomendador bate com a declarada no model_card.json
 def test_model_version_bate_com_model_card(r, model_card):
     assert r.model_version == model_card["version"]
 
@@ -130,10 +140,12 @@ def test_scaler_foi_ajustado_para_mesma_quantidade_de_feature_cols(r):
 # Recomendador, na borda da API).
 
 
+# Todo user_id carregado do parquet real segue o formato u_XXXX
 def test_todos_os_known_users_seguem_o_formato_esperado(r):
     assert all(USER_ID_PATTERN.match(uid) for uid in r.known_users)
 
 
+# Todo user_id carregado do parquet real esta em minusculo
 def test_todos_os_known_users_sao_minusculos(r):
     assert all(uid == uid.lower() for uid in r.known_users)
 

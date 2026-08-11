@@ -25,6 +25,9 @@ configure_logging()
 logger = get_logger(__name__)
 
 
+# Roda uma unica vez no startup do servidor (tudo antes do yield) e uma
+# unica vez no shutdown (depois do yield, vazio aqui). Carrega o modelo e
+# os dados uma vez so, e guarda em app.state para todo request reusar.
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     service = Recomendador()

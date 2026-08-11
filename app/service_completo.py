@@ -36,6 +36,9 @@ class Recommendation:
 
 
 class Recomendador:
+    # Carrega modelo, scaler, features e produtos UMA VEZ (chamado no
+    # lifespan de app/main.py, nao a cada request). Falha rapido se o
+    # artefato estiver inconsistente (_check_artifact_integrity).
     def __init__(self, model_path: Path = MODEL_PATH):
         with open(model_path / "model.pkl", "rb") as f:
             artifact = pickle.load(f)
@@ -66,15 +69,20 @@ class Recomendador:
                 f"mas feature_cols declara {n_expected} ({self.feature_cols})"
             )
 
+    # Delega para a funcao pura importada, passando o known_users ja carregado
     def is_known_user(self, user_id: str) -> bool:
         return is_known_user(self.known_users, user_id)
 
+    # Metodo principal: monta os candidatos (cold start ou historico real),
+    # pontua e ordena por score, e converte o resultado para a lista de
+    # Recommendation que o Controller (routers/) espera receber.
     def recommend(self, user_id: str, top_n: int = 10) -> tuple[list[Recommendation], bool]:
         cold_start = not self.is_known_user(user_id)
 
         candidatos = montar_candidatos(user_id, self.known_users, self.features, self.products)
         candidatos = ordenar_candidatos_por_score(candidatos, self.feature_cols, self.scaler, self.model, top_n)
 
+        # Converte cada linha do DataFrame final num objeto Recommendation
         recs = [
             Recommendation(
                 product_id=row["product_id"],

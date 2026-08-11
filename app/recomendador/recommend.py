@@ -1,6 +1,10 @@
 from .score import scores
 import pandas as pd
 
+# Monta a tabela de produtos candidatos a serem pontuados. Usuario
+# desconhecido -> catalogo inteiro, com interactions/user_affinity_match
+# zerados (cold start). Usuario conhecido -> so o historico real dele,
+# ja vindo pronto do parquet de features.
 def montar_candidatos(
         user_id: str,
         known_users: set,
@@ -20,6 +24,8 @@ def montar_candidatos(
         return produtos_candidatos
 
 
+# Pontua cada candidato com o modelo (via scores()), ordena do maior score
+# para o menor, e corta para as top_n primeiras linhas.
 def ordenar_candidatos_por_score(
     produtos_candidatos: pd.DataFrame,
     feature_cols: list,

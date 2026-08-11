@@ -13,6 +13,9 @@ from fastapi import HTTPException, Request
 from app.service_completo import Recomendador
 
 
+# Recupera o Recomendador ja carregado (criado uma vez no lifespan, em
+# app/main.py) a partir do estado da aplicacao. Se o servico ainda nao
+# terminou de subir, devolve 503 em vez de deixar o request quebrar.
 def get_service(request: Request) -> Recomendador:
     service: Recomendador | None = getattr(request.app.state, "service", None)
     if service is None:

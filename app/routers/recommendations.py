@@ -23,6 +23,8 @@ logger = get_logger(__name__)
 router = APIRouter()
 
 
+# Reporta status geral: versao do modelo carregado, quantos usuarios
+# conhecidos existem, e ha quanto tempo o snapshot de features foi gerado.
 @router.get("/health", response_model=HealthResponse)
 def health(service: Recomendador = Depends(get_service)):
     return HealthResponse(
@@ -33,26 +35,32 @@ def health(service: Recomendador = Depends(get_service)):
     )
 
 
+# Endpoint principal: valida o user_id, pede a recomendacao ao service,
+# registra metricas/log, e formata a resposta no schema publico da API.
 @router.get("/recommendations/{user_id}", response_model=RecommendationsResponse)
 def get_recommendations(
     user_id: str,
     top_n: int = Query(default=10, ge=1, le=60),
     service: Recomendador = Depends(get_service),
 ):
+    # Formato invalido -> 400, antes de tocar no service/modelo
     try:
         user_id = normalize_user_id(user_id)
     except InvalidUserIdError as exc:
         logger.warning("invalid_user_id", raw_user_id=exc.user_id, reason=exc.reason)
         raise HTTPException(status_code=400, detail=exc.reason) from exc
 
+    # Mede quanto tempo o calculo da recomendacao leva, para logar como latency_ms
     start = time.perf_counter()
     recs, cold_start = service.recommend(user_id, top_n=top_n)
     latency_ms = (time.perf_counter() - start) * 1000
 
+    # Metricas Prometheus: conta o request (por cold_start) e observa cada score servido
     RECOMMENDATION_REQUESTS.labels(cold_start=str(cold_start).lower()).inc()
     for r in recs:
         RECOMMENDATION_SCORE.observe(r.score)
 
+    # Log estruturado (JSON) com os campos pedidos: user_id, latencia, cold_start
     logger.info(
         "recommendations_served",
         user_id=user_id,
@@ -62,6 +70,7 @@ def get_recommendations(
         latency_ms=round(latency_ms, 2),
     )
 
+    # Converte a lista de Recommendation (dataclass interno) para o schema publico
     return RecommendationsResponse(
         user_id=user_id,
         cold_start=cold_start,

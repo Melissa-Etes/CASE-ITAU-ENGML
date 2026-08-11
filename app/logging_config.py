@@ -10,6 +10,9 @@ import sys
 import structlog
 
 
+# Configura o pipeline de log da aplicacao inteira: cada log passa pela
+# lista de processors em sequencia (adiciona timestamp, nivel, e por fim
+# serializa tudo como JSON) antes de ir para o stdout.
 def configure_logging() -> None:
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=logging.INFO)
 
@@ -25,5 +28,7 @@ def configure_logging() -> None:
     )
 
 
+# Cria um logger identificado pelo nome do modulo que o chamou -- esse
+# nome aparece em cada linha de log gerada a partir dali.
 def get_logger(name: str):
     return structlog.get_logger(name)

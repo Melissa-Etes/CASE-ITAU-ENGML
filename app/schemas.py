@@ -10,6 +10,7 @@ from __future__ import annotations
 from pydantic import BaseModel
 
 
+# Formato da resposta de GET /health
 class HealthResponse(BaseModel):
     status: str
     model_version: str
@@ -17,6 +18,7 @@ class HealthResponse(BaseModel):
     features_age_seconds: float
 
 
+# Formato de cada produto recomendado, dentro da lista de RecommendationsResponse
 class RecommendationItem(BaseModel):
     product_id: str
     score: float
@@ -24,6 +26,7 @@ class RecommendationItem(BaseModel):
     price: float
 
 
+# Formato da resposta de GET /recommendations/{user_id}
 class RecommendationsResponse(BaseModel):
     user_id: str
     cold_start: bool

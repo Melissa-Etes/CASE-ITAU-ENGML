@@ -24,6 +24,9 @@ DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 OUTPUT_PATH = DATA_DIR / "processed" / "user_product_features.parquet"
 
 
+# Le os CSVs brutos, gera a matriz de features via build_feature_matrix,
+# e grava o resultado como parquet -- esse arquivo e o unico que a API
+# le no startup (nunca os CSVs originais diretamente).
 def main() -> None:
     events_path = DATA_DIR / "events.csv"
     products_path = DATA_DIR / "products.csv"
