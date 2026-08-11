@@ -5,8 +5,7 @@ para uma mudança específica, sem precisar ler o projeto inteiro primeiro. Ele 
 já documentadas — aponta para elas.
 
 - **Por quê as coisas são como são** → [`docs/adr/`](docs/adr/) (Architecture Decision Records)
-- **Como rodar/testar no dia a dia** → [`SOLUTION_ATUAL.md`](SOLUTION_ATUAL.md)
-- **Entrega original do case, com trade-offs detalhados** → [`SOLUTION.md`](SOLUTION.md)
+- **Como rodar/testar, decisões de arquitetura e trade-offs** → [`SOLUTION.md`](SOLUTION.md)
 - **Onde exatamente mexer para cada tipo de mudança** → [`docs/ROUTING.md`](docs/ROUTING.md)
 
 ## Identidade do projeto, em 3 linhas
@@ -69,7 +68,7 @@ Cada item aqui tem um ADR correspondente — leia antes de alterar:
 ## Gaps conhecidos, não implementados
 
 Listados aqui para não serem redescobertos por engano como "bugs" — são omissões conscientes,
-documentadas em [`SOLUTION.md`](SOLUTION.md) e [`SOLUTION_ATUAL.md`](SOLUTION_ATUAL.md):
+documentadas em [`SOLUTION.md`](SOLUTION.md):
 
 - Autenticação e rate limiting na API.
 - Ingestão incremental (hoje é batch, requer rebuild da imagem para atualizar dados).

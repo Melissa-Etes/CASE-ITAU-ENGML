@@ -5,7 +5,7 @@ de producao.
 Baseline calculado empiricamente sobre o modelo (purchase_propensity_v1,
 LogisticRegression) + o snapshot de features atual, olhando o top-10
 efetivamente servido por usuario: media 0.110, mediana 0.089, p10 0.070,
-p90 0.184 (ver conversa/SOLUTION_ATUAL.md).
+p90 0.184 (ver SOLUTION.md, secao 5).
 
 Um desvio pra baixo (score medio perto de 0 -- modelo "zerado", features
 quebradas) ou pra cima (saturacao do scaler, vazamento de feature,
@@ -75,7 +75,7 @@ def test_score_nao_esta_saturado_em_um_unico_valor(r):
 
 def test_cold_start_score_medio_dentro_do_baseline(r):
     """O caminho de cold start (usuario sem historico) tem seu proprio
-    baseline, mais baixo que o de usuario conhecido -- ver SOLUTION_ATUAL.md.
+    baseline, mais baixo que o de usuario conhecido -- ver SOLUTION.md.
     Testado separado porque usa uma logica de scoring diferente
     (interactions/user_affinity_match zerados) e pode quebrar sem afetar o
     caminho de usuario conhecido."""
